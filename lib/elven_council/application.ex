@@ -11,8 +11,7 @@ defmodule ElvenCouncil.Application do
       ElvenCouncilWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:elven_council, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: ElvenCouncil.PubSub},
-      # Start a worker by calling: ElvenCouncil.Worker.start_link(arg)
-      # {ElvenCouncil.Worker, arg},
+      {Registry, keys: :unique, name: ElvenCouncil.GameRegistry},
       # Start to serve requests, typically the last entry
       ElvenCouncilWeb.Endpoint
     ]

@@ -21,7 +21,8 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       |> form("form", %{"players" => ["Emilio", "Marco", "Luca"]})
       |> render_submit()
 
-      assert_redirect(view, ~r"/game/.+")
+      {path, _flash} = assert_redirect(view)
+      assert path =~ ~r"/game/.+"
     end
 
     test "creating a game with fewer than 2 players shows an error", %{conn: conn} do
