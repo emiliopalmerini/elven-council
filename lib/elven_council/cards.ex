@@ -113,4 +113,12 @@ defmodule ElvenCouncil.Cards do
   def get(name), do: Map.fetch!(@cards, name)
 
   def voteable_names, do: Map.keys(@cards)
+
+  def mechanic_label(:will_of_the_council), do: "Will of the Council"
+  def mechanic_label(:councils_dilemma), do: "Council's Dilemma"
+  def mechanic_label(:secret_council), do: "Secret Council"
+
+  def mechanic_rule(:will_of_the_council), do: "Majority wins. Ties resolve to the second option."
+  def mechanic_rule(:councils_dilemma), do: "Each vote counts individually; effects scale with vote count."
+  def mechanic_rule(:secret_council), do: "Votes are secret and simultaneous. Revealed when all players have voted."
 end

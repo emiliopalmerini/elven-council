@@ -77,10 +77,14 @@ defmodule ElvenCouncilWeb.JoinLive do
       |> Map.put(:can_vote, can_vote)
       |> Map.put(:already_voted, already_voted)
       |> Map.put(:options, options)
+      |> Map.put(:mechanic_label, Cards.mechanic_label(card.mechanic))
+      |> Map.put(:mechanic_rule, Cards.mechanic_rule(card.mechanic))
 
     ~H"""
     <div>
       <h3 class="font-bold mb-2">{@current_card}</h3>
+
+      <.card_rules card={@card} mechanic_label={@mechanic_label} mechanic_rule={@mechanic_rule} />
 
       <%= if @already_voted do %>
         <p class="text-center mt-4">Vote submitted. Waiting for other players...</p>
@@ -145,6 +149,24 @@ defmodule ElvenCouncilWeb.JoinLive do
       <% end %>
 
       <p class="text-center mt-4 opacity-60">Waiting for host to start next vote...</p>
+    </div>
+    """
+  end
+
+  # -- Components --
+
+  defp card_rules(assigns) do
+    ~H"""
+    <div class="bg-base-200 rounded-lg p-3 mb-4 text-sm">
+      <p class="font-medium">{@mechanic_label}</p>
+      <p class="opacity-70 mb-2">{@mechanic_rule}</p>
+      <%= if is_map(@card.resolution) do %>
+        <ul class="space-y-1">
+          <%= for {option, effect} <- @card.resolution do %>
+            <li><span class="font-medium">{option}:</span> {effect}</li>
+          <% end %>
+        </ul>
+      <% end %>
     </div>
     """
   end

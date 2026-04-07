@@ -93,10 +93,15 @@ defmodule ElvenCouncilWeb.GameLive do
       |> Map.put(:card, card)
       |> Map.put(:voter, voter)
       |> Map.put(:options, options)
+      |> Map.put(:mechanic_label, Cards.mechanic_label(card.mechanic))
+      |> Map.put(:mechanic_rule, Cards.mechanic_rule(card.mechanic))
 
     ~H"""
     <div>
       <h3 class="font-bold mb-2">{@current_card}</h3>
+
+      <.card_rules card={@card} mechanic_label={@mechanic_label} mechanic_rule={@mechanic_rule} />
+
       <%= if @illusion_of_choice do %>
         <p class="mb-4">You choose for all players</p>
       <% else %>
@@ -309,6 +314,24 @@ defmodule ElvenCouncilWeb.GameLive do
       end
 
     {:noreply, socket |> sync_state(state) |> assign(pass_screen: pass_screen)}
+  end
+
+  # -- Components --
+
+  defp card_rules(assigns) do
+    ~H"""
+    <div class="bg-base-200 rounded-lg p-3 mb-4 text-sm">
+      <p class="font-medium">{@mechanic_label}</p>
+      <p class="opacity-70 mb-2">{@mechanic_rule}</p>
+      <%= if is_map(@card.resolution) do %>
+        <ul class="space-y-1">
+          <%= for {option, effect} <- @card.resolution do %>
+            <li><span class="font-medium">{option}:</span> {effect}</li>
+          <% end %>
+        </ul>
+      <% end %>
+    </div>
+    """
   end
 
   # -- Helpers --
