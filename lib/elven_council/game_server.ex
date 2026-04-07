@@ -4,8 +4,9 @@ defmodule ElvenCouncil.GameServer do
   # -- Client API --
 
   def start_game(room_id, players) do
-    GenServer.start_link(__MODULE__, %{room_id: room_id, players: players},
-      name: via(room_id)
+    DynamicSupervisor.start_child(
+      ElvenCouncil.GameSupervisor,
+      {__MODULE__, %{room_id: room_id, players: players}}
     )
   end
 
@@ -18,6 +19,18 @@ defmodule ElvenCouncil.GameServer do
       [{_pid, _}] -> true
       [] -> false
     end
+  end
+
+  def start_link(init_arg) do
+    GenServer.start_link(__MODULE__, init_arg, name: via(init_arg.room_id))
+  end
+
+  def child_spec(init_arg) do
+    %{
+      id: {__MODULE__, init_arg.room_id},
+      start: {__MODULE__, :start_link, [init_arg]},
+      restart: :temporary
+    }
   end
 
   # -- Server Callbacks --

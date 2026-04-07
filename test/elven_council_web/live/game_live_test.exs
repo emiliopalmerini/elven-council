@@ -77,7 +77,7 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       # Council's Dilemma
       assert html =~ "Expropriate"
       assert html =~ "Messenger Jays"
-      assert html =~ "Selvala's Stampede"
+      assert has_element?(view, "button", "Selvala's Stampede")
       assert html =~ "Travel Through Caradhras"
 
       # Unnamed (Council's Dilemma behavior)
@@ -104,12 +104,8 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       |> element("button", "Plea for Power")
       |> render_click()
 
-      html =
-        view
-        |> element("button", "Expropriate")
-        |> render_click()
-
-      assert html =~ "vote already in progress"
+      # Card selection buttons are not rendered during voting
+      refute has_element?(view, "button", "Expropriate")
     end
   end
 

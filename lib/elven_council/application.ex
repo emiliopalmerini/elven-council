@@ -12,6 +12,7 @@ defmodule ElvenCouncil.Application do
       {DNSCluster, query: Application.get_env(:elven_council, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: ElvenCouncil.PubSub},
       {Registry, keys: :unique, name: ElvenCouncil.GameRegistry},
+      {DynamicSupervisor, name: ElvenCouncil.GameSupervisor, strategy: :one_for_one},
       # Start to serve requests, typically the last entry
       ElvenCouncilWeb.Endpoint
     ]
