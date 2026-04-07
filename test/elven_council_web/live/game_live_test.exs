@@ -61,6 +61,8 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       {path, _flash} = assert_redirect(view)
       {:ok, game_view, _html} = live(conn, path)
 
+      game_view |> element("button", "Emilio") |> render_click()
+
       %{game_view: game_view, game_path: path}
     end
 
@@ -109,89 +111,82 @@ defmodule ElvenCouncilWeb.GameLiveTest do
     end
   end
 
+  # -- Helper: create game with host + JoinLive for non-host players --
+
+  defp create_game(conn, players, host_name \\ nil) do
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> form("form", %{"players" => players}) |> render_submit()
+    {game_path, _flash} = assert_redirect(view)
+    "/game/" <> room_code = game_path
+
+    {:ok, host, _html} = live(conn, game_path)
+
+    # Host picks their identity (defaults to first player)
+    host_name = host_name || List.first(players)
+    host |> element("button", host_name) |> render_click()
+
+    # Non-host players join via JoinLive
+    player_views =
+      players
+      |> Enum.reject(&(&1 == host_name))
+      |> Enum.map(fn name ->
+        {:ok, pv, _html} = live(conn, ~p"/join/#{room_code}?name=#{name}")
+        {name, pv}
+      end)
+      |> Map.new()
+
+    {host, player_views, room_code}
+  end
+
   # -- Will of the Council (public, sequential, majority wins) --
 
   describe "Will of the Council voting" do
     setup %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {host, players, _room} = create_game(conn, ["Emilio", "Marco", "Luca"])
 
-      view
-      |> form("form", %{"players" => ["Emilio", "Marco", "Luca"]})
-      |> render_submit()
+      host |> element("button", "Plea for Power") |> render_click()
 
-      {path, _flash} = assert_redirect(view)
-      {:ok, game_view, _html} = live(conn, path)
-
-      game_view
-      |> element("button", "Plea for Power")
-      |> render_click()
-
-      %{game_view: game_view}
+      %{host: host, marco: players["Marco"], luca: players["Luca"]}
     end
 
-    test "players vote sequentially in turn order", %{game_view: view} do
-      html = render(view)
-      assert html =~ "Emilio"
+    test "host (caster) votes first, then other players in turn order", ctx do
+      # Host sees vote prompt
+      host_html = render(ctx.host)
+      assert host_html =~ "Emilio, cast your vote"
 
-      view |> element("button", "Time") |> render_click()
-      html = render(view)
-      assert html =~ "pass to"
+      # Host votes
+      ctx.host |> element("button", "Time") |> render_click()
 
-      view |> element("button", "Ready") |> render_click()
-      html = render(view)
-      assert html =~ "Marco"
+      # Host now sees waiting view
+      host_html = render(ctx.host)
+      assert host_html =~ "Vote submitted"
+
+      # Marco's turn
+      marco_html = render(ctx.marco)
+      assert marco_html =~ "Marco, cast your vote"
     end
 
-    test "majority wins the vote", %{game_view: view} do
-      # Emilio votes Time
-      view |> element("button", "Time") |> render_click()
-      view |> element("button", "Ready") |> render_click()
+    test "majority wins the vote", ctx do
+      ctx.host |> element("button", "Time") |> render_click()
+      ctx.marco |> element("button", "Time") |> render_click()
+      ctx.luca |> element("button", "Knowledge") |> render_click()
 
-      # Marco votes Time
-      view |> element("button", "Time") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-
-      # Luca votes Knowledge
-      html = view |> element("button", "Knowledge") |> render_click()
-
-      assert html =~ "Time"
-      assert html =~ "wins"
+      host_html = render(ctx.host)
+      assert host_html =~ "Time"
+      assert host_html =~ "wins"
     end
 
-    test "tie resolves to the second option", %{game_view: view} do
-      # Need an even number of players for a tie; re-setup with 4 players
-      # This test uses Coercive Portal with 2 players for a 1-1 tie
-    end
-  end
+    test "tie resolves to the second option", %{conn: conn} do
+      {host, players, _room} = create_game(conn, ["Emilio", "Marco"])
 
-  describe "Will of the Council tie resolution" do
-    setup %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      host |> element("button", "Coercive Portal") |> render_click()
 
-      view
-      |> form("form", %{"players" => ["Emilio", "Marco"]})
-      |> render_submit()
+      host |> element("button", "Carnage") |> render_click()
+      players["Marco"] |> element("button", "Homage") |> render_click()
 
-      {path, _flash} = assert_redirect(view)
-      {:ok, game_view, _html} = live(conn, path)
-
-      game_view
-      |> element("button", "Coercive Portal")
-      |> render_click()
-
-      %{game_view: game_view}
-    end
-
-    test "tie resolves to the second option (Homage)", %{game_view: view} do
-      # Emilio votes Carnage
-      view |> element("button", "Carnage") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-
-      # Marco votes Homage
-      html = view |> element("button", "Homage") |> render_click()
-
-      assert html =~ "Homage"
-      assert html =~ "wins"
+      host_html = render(host)
+      assert host_html =~ "Homage"
+      assert host_html =~ "wins"
     end
   end
 
@@ -199,235 +194,142 @@ defmodule ElvenCouncilWeb.GameLiveTest do
 
   describe "Council's Dilemma voting" do
     setup %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {host, players, _room} = create_game(conn, ["Emilio", "Marco", "Luca"])
 
-      view
-      |> form("form", %{"players" => ["Emilio", "Marco", "Luca"]})
-      |> render_submit()
+      host |> element("button", "Expropriate") |> render_click()
 
-      {path, _flash} = assert_redirect(view)
-      {:ok, game_view, _html} = live(conn, path)
-
-      game_view
-      |> element("button", "Expropriate")
-      |> render_click()
-
-      %{game_view: game_view}
+      %{host: host, marco: players["Marco"], luca: players["Luca"]}
     end
 
-    test "resolution shows individual vote counts", %{game_view: view} do
-      # Emilio votes Time
-      view |> element("button", "Time") |> render_click()
-      view |> element("button", "Ready") |> render_click()
+    test "resolution shows individual vote counts", ctx do
+      ctx.host |> element("button", "Time") |> render_click()
+      ctx.marco |> element("button", "Money") |> render_click()
+      ctx.luca |> element("button", "Time") |> render_click()
 
-      # Marco votes Money
-      view |> element("button", "Money") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-
-      # Luca votes Time
-      html = view |> element("button", "Time") |> render_click()
-
-      assert html =~ "Time"
-      assert html =~ "2"
-      assert html =~ "Money"
-      assert html =~ "1"
+      host_html = render(ctx.host)
+      assert host_html =~ "Time"
+      assert host_html =~ "2"
+      assert host_html =~ "Money"
+      assert host_html =~ "1"
     end
 
-    test "resolution describes per-vote effects", %{game_view: view} do
-      view |> element("button", "Time") |> render_click()
-      view |> element("button", "Ready") |> render_click()
+    test "resolution describes per-vote effects", ctx do
+      ctx.host |> element("button", "Time") |> render_click()
+      ctx.marco |> element("button", "Money") |> render_click()
+      ctx.luca |> element("button", "Time") |> render_click()
 
-      view |> element("button", "Money") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-
-      html = view |> element("button", "Time") |> render_click()
-
-      # Should describe what happens for each vote
-      assert html =~ "extra turn"
-      assert html =~ "control"
+      host_html = render(ctx.host)
+      assert host_html =~ "extra turn"
+      assert host_html =~ "control"
     end
   end
 
   # -- Secret Council (secret, simultaneous) --
 
-  describe "Secret Council voting (single-device)" do
+  describe "Secret Council voting" do
     setup %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+      {host, players, _room} = create_game(conn, ["Emilio", "Marco", "Luca"])
 
-      view
-      |> form("form", %{"players" => ["Emilio", "Marco", "Luca"]})
-      |> render_submit()
-
-      {path, _flash} = assert_redirect(view)
-      {:ok, game_view, _html} = live(conn, path)
-
-      %{game_view: game_view}
+      %{conn: conn, host: host, marco: players["Marco"], luca: players["Luca"]}
     end
 
-    test "Elrond: votes are hidden until all players have voted", %{game_view: view} do
-      view
-      |> element("button", "Elrond of the White Council")
-      |> render_click()
+    test "Elrond: votes are hidden until all players have voted", ctx do
+      ctx.host |> element("button", "Elrond of the White Council") |> render_click()
 
-      # Emilio votes Fellowship
-      view |> element("button", "Fellowship") |> render_click()
-      html = view |> element("button", "Ready") |> render_click()
+      # Host and Marco vote
+      ctx.host |> element("button", "Fellowship") |> render_click()
+      ctx.marco |> element("button", "Aid") |> render_click()
 
-      # After passing, previous voter's choice should not be revealed
-      refute html =~ "Emilio voted"
-      assert html =~ "Marco"
+      # Host sees "Vote submitted", results not yet visible
+      host_html = render(ctx.host)
+      assert host_html =~ "Vote submitted"
+      refute host_html =~ "Emilio voted"
 
-      # Marco votes Aid
-      view |> element("button", "Aid") |> render_click()
-      html = view |> element("button", "Ready") |> render_click()
+      # Luca votes; all revealed
+      ctx.luca |> element("button", "Fellowship") |> render_click()
 
-      refute html =~ "Marco voted"
-      assert html =~ "Luca"
-
-      # Luca votes Fellowship - all votes revealed
-      html = view |> element("button", "Fellowship") |> render_click()
-
-      assert html =~ "Emilio voted"
-      assert html =~ "Marco voted"
-      assert html =~ "Luca voted"
-      assert html =~ "Fellowship"
-      assert html =~ "Aid"
+      host_html = render(ctx.host)
+      assert host_html =~ "Emilio voted"
+      assert host_html =~ "Marco voted"
+      assert host_html =~ "Luca voted"
+      assert host_html =~ "Fellowship"
+      assert host_html =~ "Aid"
     end
 
-    test "Cirdan: players vote for a player from the list", %{game_view: view} do
-      view
-      |> element("button", "Cirdan the Shipwright")
-      |> render_click()
+    test "Cirdan: players vote for a player from the list", ctx do
+      ctx.host |> element("button", "Cirdan the Shipwright") |> render_click()
 
-      html = render(view)
+      # Host sees player names as vote options
+      host_html = render(ctx.host)
+      assert has_element?(ctx.host, "button", "Emilio")
+      assert has_element?(ctx.host, "button", "Marco")
+      assert has_element?(ctx.host, "button", "Luca")
 
-      # Should show player names as vote options
-      assert has_element?(view, "button", "Emilio")
-      assert has_element?(view, "button", "Marco")
-      assert has_element?(view, "button", "Luca")
+      # All players vote
+      ctx.host |> element("button", "Marco") |> render_click()
+      ctx.marco |> element("button", "Marco") |> render_click()
+      ctx.luca |> element("button", "Emilio") |> render_click()
 
-      # Emilio votes for Marco
-      view |> element("button", "Marco") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-
-      # Marco votes for Marco
-      view |> element("button", "Marco") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-
-      # Luca votes for Emilio - all revealed
-      html = view |> element("button", "Emilio") |> render_click()
-
-      # Marco got 2 votes (draws 2), Emilio got 1 vote (draws 1), Luca got 0 (cheats permanent)
-      assert html =~ "Marco"
-      assert html =~ "draws"
-      assert html =~ "Luca"
-      assert html =~ "permanent"
+      host_html = render(ctx.host)
+      assert host_html =~ "Marco"
+      assert host_html =~ "draws"
+      assert host_html =~ "Luca"
+      assert host_html =~ "permanent"
     end
 
-    test "Trap the Trespassers: free-text creature input", %{game_view: view} do
-      view
-      |> element("button", "Trap the Trespassers")
-      |> render_click()
+    test "Trap the Trespassers: free-text creature input", ctx do
+      ctx.host |> element("button", "Trap the Trespassers") |> render_click()
 
-      assert has_element?(view, "input[name='creature']")
+      assert has_element?(ctx.host, "input[name='creature']")
 
-      # Emilio votes for a creature
-      view
-      |> form("form", %{"creature" => "Sol Ring"})
-      |> render_submit()
+      ctx.host |> form("form", %{"creature" => "Sol Ring"}) |> render_submit()
+      ctx.marco |> form("form", %{"creature" => "Sol Ring"}) |> render_submit()
+      ctx.luca |> form("form", %{"creature" => "Beast Whisperer"}) |> render_submit()
 
-      view |> element("button", "Ready") |> render_click()
-
-      # Marco votes for same creature
-      view
-      |> form("form", %{"creature" => "Sol Ring"})
-      |> render_submit()
-
-      view |> element("button", "Ready") |> render_click()
-
-      # Luca votes for different creature
-      html =
-        view
-        |> form("form", %{"creature" => "Beast Whisperer"})
-        |> render_submit()
-
-      # Resolution shows stun counters per creature
-      assert html =~ "Sol Ring"
-      assert html =~ "2"
-      assert html =~ "Beast Whisperer"
-      assert html =~ "1"
-      assert html =~ "stun"
+      host_html = render(ctx.host)
+      assert host_html =~ "Sol Ring"
+      assert host_html =~ "2"
+      assert host_html =~ "Beast Whisperer"
+      assert host_html =~ "1"
+      assert host_html =~ "stun"
     end
   end
 
   # -- Vote Modifiers --
 
   describe "Erestor payoff" do
-    setup %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+    test "resolution shows Erestor trigger summary", %{conn: conn} do
+      {host, players, _room} = create_game(conn, ["Emilio", "Marco", "Luca"])
 
-      view
-      |> form("form", %{"players" => ["Emilio", "Marco", "Luca"]})
-      |> render_submit()
+      host |> element("button", "Plea for Power") |> render_click()
 
-      {path, _flash} = assert_redirect(view)
-      {:ok, game_view, _html} = live(conn, path)
-
-      %{game_view: game_view}
-    end
-
-    test "resolution shows Erestor trigger summary", %{game_view: view} do
-      view
-      |> element("button", "Plea for Power")
-      |> render_click()
-
-      # Emilio (caster, first in turn order) votes Time
-      view |> element("button", "Time") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-
+      # Emilio (caster) votes Time from host
+      host |> element("button", "Time") |> render_click()
       # Marco votes Time (matches caster)
-      view |> element("button", "Time") |> render_click()
-      view |> element("button", "Ready") |> render_click()
+      players["Marco"] |> element("button", "Time") |> render_click()
+      # Luca votes Knowledge (doesn't match)
+      players["Luca"] |> element("button", "Knowledge") |> render_click()
 
-      # Luca votes Knowledge (doesn't match caster)
-      html = view |> element("button", "Knowledge") |> render_click()
-
-      # Erestor: opponents who matched get a Treasure; scry X where X = opponents who didn't match
-      assert html =~ "Erestor"
-      assert html =~ "Treasure"
-      assert html =~ "scry"
+      host_html = render(host)
+      assert host_html =~ "Erestor"
+      assert host_html =~ "Treasure"
+      assert host_html =~ "scry"
     end
   end
 
   describe "Model of Unity payoff" do
-    setup %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+    test "resolution shows Model of Unity scry info", %{conn: conn} do
+      {host, players, _room} = create_game(conn, ["Emilio", "Marco", "Luca"])
 
-      view
-      |> form("form", %{"players" => ["Emilio", "Marco", "Luca"]})
-      |> render_submit()
+      host |> element("button", "Plea for Power") |> render_click()
 
-      {path, _flash} = assert_redirect(view)
-      {:ok, game_view, _html} = live(conn, path)
+      host |> element("button", "Time") |> render_click()
+      players["Marco"] |> element("button", "Time") |> render_click()
+      players["Luca"] |> element("button", "Knowledge") |> render_click()
 
-      %{game_view: game_view}
-    end
-
-    test "resolution shows Model of Unity scry info", %{game_view: view} do
-      view
-      |> element("button", "Plea for Power")
-      |> render_click()
-
-      view |> element("button", "Time") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-
-      view |> element("button", "Time") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-
-      html = view |> element("button", "Knowledge") |> render_click()
-
-      assert html =~ "Model of Unity"
-      assert html =~ "scry 2"
+      host_html = render(host)
+      assert host_html =~ "Model of Unity"
+      assert host_html =~ "scry 2"
     end
   end
 
@@ -442,33 +344,25 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       {path, _flash} = assert_redirect(view)
       {:ok, game_view, _html} = live(conn, path)
 
+      game_view |> element("button", "Emilio") |> render_click()
+
       %{game_view: game_view}
     end
 
     test "toggling Illusion of Choice lets caster set all votes", %{game_view: view} do
-      # Enable Illusion of Choice
       view |> element("button", "Illusion of Choice") |> render_click()
 
       html = render(view)
       assert html =~ "Illusion of Choice"
       assert html =~ "active"
 
-      # Start a vote
-      view
-      |> element("button", "Expropriate")
-      |> render_click()
+      view |> element("button", "Expropriate") |> render_click()
 
-      # Caster chooses for all players
       html = render(view)
       assert html =~ "choose for all"
 
-      # All players' votes are set by the caster
-      html =
-        view
-        |> element("button", "Time")
-        |> render_click()
+      html = view |> element("button", "Time") |> render_click()
 
-      # Resolution: all 3 votes are Time
       assert html =~ "Time"
       assert html =~ "3"
     end
@@ -476,15 +370,9 @@ defmodule ElvenCouncilWeb.GameLiveTest do
     test "Illusion of Choice overrides Secret Council secrecy", %{game_view: view} do
       view |> element("button", "Illusion of Choice") |> render_click()
 
-      view
-      |> element("button", "Elrond of the White Council")
-      |> render_click()
+      view |> element("button", "Elrond of the White Council") |> render_click()
 
-      # Caster sets all votes, no secret phase
-      html =
-        view
-        |> element("button", "Fellowship")
-        |> render_click()
+      html = view |> element("button", "Fellowship") |> render_click()
 
       assert html =~ "Fellowship"
       assert html =~ "3"
@@ -502,13 +390,12 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       |> render_submit()
 
       {path, _flash} = assert_redirect(view)
-      {:ok, game_view, html} = live(conn, path)
+      {:ok, _game_view, html} = live(conn, path)
 
       assert html =~ "room"
     end
 
     test "player can join via room code", %{conn: conn} do
-      # Host creates game
       {:ok, host_view, _html} = live(conn, ~p"/")
 
       host_view
@@ -516,17 +403,17 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       |> render_submit()
 
       {game_path, _flash} = assert_redirect(host_view)
-
-      # Extract room code from path
       "/game/" <> room_code = game_path
 
-      # Player joins
       {:ok, join_view, html} = live(conn, ~p"/join/#{room_code}")
+      assert html =~ "Who are you?"
+
+      html = join_view |> element("button", "Marco") |> render_click()
       assert html =~ "Waiting for host"
     end
 
     test "joining a nonexistent room shows an error", %{conn: conn} do
-      {:ok, view, html} = live(conn, ~p"/join/nonexistent")
+      {:ok, _view, html} = live(conn, ~p"/join/nonexistent")
 
       assert html =~ "Room not found"
     end
@@ -536,61 +423,41 @@ defmodule ElvenCouncilWeb.GameLiveTest do
 
   describe "multi-device voting" do
     setup %{conn: conn} do
-      # Host creates game
-      {:ok, host_view, _html} = live(conn, ~p"/")
+      {host, players, room_code} = create_game(conn, ["Emilio", "Marco", "Luca"])
 
-      host_view
-      |> form("form", %{"players" => ["Emilio", "Marco", "Luca"]})
-      |> render_submit()
-
-      {game_path, _flash} = assert_redirect(host_view)
-      "/game/" <> room_code = game_path
-
-      # Host opens the game view
-      {:ok, host, _html} = live(conn, game_path)
-
-      # Players join on their own "devices" (separate LiveView connections)
-      {:ok, marco, _html} = live(conn, ~p"/join/#{room_code}?name=Marco")
-      {:ok, luca, _html} = live(conn, ~p"/join/#{room_code}?name=Luca")
-
-      %{host: host, marco: marco, luca: luca, room_code: room_code}
+      %{host: host, marco: players["Marco"], luca: players["Luca"], room_code: room_code}
     end
 
-    test "host selects a card and players see it on their devices", %{host: host, marco: marco, luca: luca} do
-      host
-      |> element("button", "Plea for Power")
-      |> render_click()
+    test "host selects a card and players see it on their devices", ctx do
+      ctx.host |> element("button", "Plea for Power") |> render_click()
 
-      # Players should see the vote prompt
-      marco_html = render(marco)
-      luca_html = render(luca)
+      marco_html = render(ctx.marco)
+      luca_html = render(ctx.luca)
 
       assert marco_html =~ "Plea for Power"
       assert luca_html =~ "Plea for Power"
     end
 
-    test "public vote: players vote in turn order from their own devices", %{host: host, marco: marco, luca: luca} do
-      host
-      |> element("button", "Expropriate")
-      |> render_click()
+    test "public vote: host votes first, then players on their devices", ctx do
+      ctx.host |> element("button", "Expropriate") |> render_click()
 
-      # Host (Emilio) is first voter; votes from host view
-      host |> element("button", "Time") |> render_click()
+      # Host (Emilio) votes first
+      ctx.host |> element("button", "Time") |> render_click()
 
-      # Marco's turn; he votes from his device
-      marco_html = render(marco)
+      # Marco's turn
+      marco_html = render(ctx.marco)
       assert marco_html =~ "Marco"
-      marco |> element("button", "Money") |> render_click()
+      ctx.marco |> element("button", "Money") |> render_click()
 
-      # Luca's turn; he votes from his device
-      luca_html = render(luca)
+      # Luca's turn
+      luca_html = render(ctx.luca)
       assert luca_html =~ "Luca"
-      luca |> element("button", "Time") |> render_click()
+      ctx.luca |> element("button", "Time") |> render_click()
 
-      # All devices should show results
-      host_html = render(host)
-      marco_html = render(marco)
-      luca_html = render(luca)
+      # All devices show results
+      host_html = render(ctx.host)
+      marco_html = render(ctx.marco)
+      luca_html = render(ctx.luca)
 
       assert host_html =~ "Time"
       assert host_html =~ "2"
@@ -598,25 +465,21 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       assert luca_html =~ "Money"
     end
 
-    test "secret vote: all players vote simultaneously from their devices", %{host: host, marco: marco, luca: luca} do
-      host
-      |> element("button", "Elrond of the White Council")
-      |> render_click()
+    test "secret vote: host and players vote simultaneously", ctx do
+      ctx.host |> element("button", "Elrond of the White Council") |> render_click()
 
-      # All players vote at the same time (no turn order for secret)
-      host |> element("button", "Fellowship") |> render_click()
-      marco |> element("button", "Aid") |> render_click()
+      ctx.host |> element("button", "Fellowship") |> render_click()
+      ctx.marco |> element("button", "Aid") |> render_click()
 
       # Results not yet visible (Luca hasn't voted)
-      host_html = render(host)
-      refute host_html =~ "voted"
+      host_html = render(ctx.host)
+      refute host_html =~ "Emilio voted"
 
-      # Luca votes; results revealed to all
-      luca |> element("button", "Fellowship") |> render_click()
+      ctx.luca |> element("button", "Fellowship") |> render_click()
 
-      host_html = render(host)
-      marco_html = render(marco)
-      luca_html = render(luca)
+      host_html = render(ctx.host)
+      marco_html = render(ctx.marco)
+      luca_html = render(ctx.luca)
 
       assert host_html =~ "Emilio voted"
       assert host_html =~ "Marco voted"
@@ -624,20 +487,17 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       assert luca_html =~ "Aid"
     end
 
-    test "host starts new vote and all devices return to card select", %{host: host, marco: marco, luca: luca} do
-      # Complete a quick vote
-      host |> element("button", "Plea for Power") |> render_click()
-      host |> element("button", "Time") |> render_click()
-      marco |> element("button", "Knowledge") |> render_click()
-      luca |> element("button", "Time") |> render_click()
+    test "host starts new vote and all devices return to card select", ctx do
+      ctx.host |> element("button", "Plea for Power") |> render_click()
+      ctx.host |> element("button", "Time") |> render_click()
+      ctx.marco |> element("button", "Knowledge") |> render_click()
+      ctx.luca |> element("button", "Time") |> render_click()
 
-      # Host starts new vote
-      host |> element("button", "New Vote") |> render_click()
+      ctx.host |> element("button", "New Vote") |> render_click()
 
-      marco_html = render(marco)
-      luca_html = render(luca)
+      marco_html = render(ctx.marco)
+      luca_html = render(ctx.luca)
 
-      # Players should see waiting/card select state
       assert marco_html =~ "Waiting"
       assert luca_html =~ "Waiting"
     end
@@ -646,20 +506,7 @@ defmodule ElvenCouncilWeb.GameLiveTest do
   # -- Card Data Completeness --
 
   describe "card data" do
-    setup %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> form("form", %{"players" => ["Emilio", "Marco"]})
-      |> render_submit()
-
-      {path, _flash} = assert_redirect(view)
-      {:ok, game_view, _html} = live(conn, path)
-
-      %{game_view: game_view}
-    end
-
-    test "each Will of the Council card shows correct options", %{game_view: _view} do
+    test "each Will of the Council card shows correct options" do
       cards_and_options = [
         {"Coercive Portal", ["Carnage", "Homage"]},
         {"Galadriel, Elven-Queen", ["Dominion", "Guidance"]},
@@ -675,7 +522,7 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       end
     end
 
-    test "each Council's Dilemma card shows correct options", %{game_view: _view} do
+    test "each Council's Dilemma card shows correct options" do
       cards_and_options = [
         {"Expropriate", ["Time", "Money"]},
         {"Messenger Jays", ["Feather", "Quill"]},
@@ -691,7 +538,7 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       end
     end
 
-    test "each Secret Council card has correct vote type", %{game_view: _view} do
+    test "each Secret Council card has correct vote type" do
       elrond = ElvenCouncil.Cards.get("Elrond of the White Council")
       assert elrond.mechanic == :secret_council
       assert elrond.options == ["Fellowship", "Aid"]
@@ -709,28 +556,14 @@ defmodule ElvenCouncilWeb.GameLiveTest do
   # -- New Vote After Resolution --
 
   describe "starting a new vote after resolution" do
-    setup %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
+    test "after a vote resolves, can start a new vote", %{conn: conn} do
+      {host, players, _room} = create_game(conn, ["Emilio", "Marco"])
 
-      view
-      |> form("form", %{"players" => ["Emilio", "Marco"]})
-      |> render_submit()
+      host |> element("button", "Plea for Power") |> render_click()
+      host |> element("button", "Time") |> render_click()
+      players["Marco"] |> element("button", "Knowledge") |> render_click()
 
-      {path, _flash} = assert_redirect(view)
-      {:ok, game_view, _html} = live(conn, path)
-
-      %{game_view: game_view}
-    end
-
-    test "after a vote resolves, can start a new vote", %{game_view: view} do
-      # Complete a vote
-      view |> element("button", "Plea for Power") |> render_click()
-      view |> element("button", "Time") |> render_click()
-      view |> element("button", "Ready") |> render_click()
-      view |> element("button", "Knowledge") |> render_click()
-
-      # Should be able to dismiss results and start a new vote
-      html = view |> element("button", "New Vote") |> render_click()
+      html = host |> element("button", "New Vote") |> render_click()
 
       assert html =~ "Coercive Portal"
       assert html =~ "Expropriate"

@@ -10,8 +10,36 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        beamPackages = pkgs.beamPackages;
+
+        mixFodDeps = beamPackages.fetchMixDeps {
+          pname = "elven-council-deps";
+          version = "0.1.0";
+          src = ./.;
+          hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+        };
       in
       {
+        packages.default = beamPackages.mixRelease {
+          pname = "elven-council";
+          version = "0.1.0";
+          src = ./.;
+          inherit mixFodDeps;
+
+          nativeBuildInputs = [ pkgs.esbuild pkgs.tailwindcss_4 ];
+
+          preBuild = ''
+            # Use system-provided esbuild and tailwind binaries
+            substituteInPlace config/config.exs \
+              --replace-quiet 'version: "0.25.4"' 'path: System.get_env("ESBUILD_PATH", "${pkgs.esbuild}/bin/esbuild")' \
+              --replace-quiet 'version: "4.1.12"' 'path: System.get_env("TAILWIND_PATH", "${pkgs.tailwindcss_4}/bin/tailwindcss")'
+          '';
+
+          postBuild = ''
+            mix assets.deploy --no-deps-check
+          '';
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             elixir

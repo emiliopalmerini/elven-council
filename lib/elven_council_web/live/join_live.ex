@@ -34,9 +34,13 @@ defmodule ElvenCouncilWeb.JoinLive do
     <div class="max-w-lg mx-auto mt-6">
       <%= cond do %>
         <% @error -> %>
-          <p class="text-red-500">{@error}</p>
+          <div class="text-center mt-10">
+            <p class="text-error text-lg">{@error}</p>
+          </div>
+        <% @player_name == nil -> %>
+          <.pick_name_phase players={@players} room_id={@room_id} />
         <% @phase == :card_select -> %>
-          <.waiting_phase player_name={@player_name} />
+          <.waiting_phase player_name={@player_name} players={@players} room_id={@room_id} />
         <% @phase == :voting -> %>
           <.player_voting_phase {assigns} />
         <% @phase == :results -> %>
@@ -46,11 +50,44 @@ defmodule ElvenCouncilWeb.JoinLive do
     """
   end
 
+  defp pick_name_phase(assigns) do
+    ~H"""
+    <div class="text-center mt-6">
+      <h2 class="text-xl font-bold mb-2">Join Game</h2>
+      <p class="opacity-60 mb-6">Room: {@room_id}</p>
+      <h3 class="font-medium mb-3">Who are you?</h3>
+      <div class="grid gap-2 max-w-xs mx-auto">
+        <%= for name <- @players do %>
+          <button phx-click="pick_name" phx-value-name={name} class="btn btn-primary btn-outline">
+            {name}
+          </button>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
   defp waiting_phase(assigns) do
     ~H"""
-    <div class="text-center mt-10">
-      <h2 class="text-xl font-bold mb-4">Waiting for host to select a card...</h2>
-      <p :if={@player_name}>Playing as: {@player_name}</p>
+    <div class="text-center mt-6">
+      <h2 class="text-xl font-bold mb-2">Waiting for host...</h2>
+      <p class="opacity-60 mb-4">Room: {@room_id}</p>
+
+      <div class="card bg-base-200 p-4 mb-4 inline-block">
+        <p class="text-sm opacity-60 mb-1">Playing as</p>
+        <p class="font-bold text-lg text-primary">{@player_name}</p>
+      </div>
+
+      <div class="mt-4">
+        <p class="text-sm opacity-60 mb-2">Players in game:</p>
+        <div class="flex flex-wrap gap-2 justify-center">
+          <%= for name <- @players do %>
+            <span class={["badge badge-lg", if(name == @player_name, do: "badge-primary", else: "badge-neutral")]}>
+              {name}
+            </span>
+          <% end %>
+        </div>
+      </div>
     </div>
     """
   end
@@ -82,15 +119,15 @@ defmodule ElvenCouncilWeb.JoinLive do
 
     ~H"""
     <div>
-      <h3 class="font-bold mb-2">{@current_card}</h3>
+      <.card_hero name={@current_card} image={@card.image} mechanic={@card.mechanic} />
 
       <.card_rules card={@card} mechanic_label={@mechanic_label} mechanic_rule={@mechanic_rule} />
 
       <%= if @already_voted do %>
-        <p class="text-center mt-4">Vote submitted. Waiting for other players...</p>
+        <p class="text-center mt-4 opacity-60">Vote submitted. Waiting for other players...</p>
       <% else %>
         <%= if @can_vote do %>
-          <p class="mb-4">{@player_name}, cast your vote:</p>
+          <p class="mb-4 font-medium text-center">{@player_name}, cast your vote:</p>
 
           <%= if @card.mechanic == :secret_council && @card[:vote_type] == :free_text do %>
             <form phx-submit="vote_free_text">
@@ -103,16 +140,16 @@ defmodule ElvenCouncilWeb.JoinLive do
               <button type="submit" class="btn btn-primary w-full">Vote</button>
             </form>
           <% else %>
-            <div class="grid gap-2">
+            <div class="grid grid-cols-2 gap-3">
               <%= for option <- @options do %>
-                <button phx-click="vote" phx-value-choice={option} class="btn btn-primary btn-outline">
+                <button phx-click="vote" phx-value-choice={option} class="btn btn-primary btn-outline btn-lg flex-1">
                   {option}
                 </button>
               <% end %>
             </div>
           <% end %>
         <% else %>
-          <p class="text-center mt-4">Waiting for {@current_voter} to vote...</p>
+          <p class="text-center mt-4 opacity-60">Waiting for {@current_voter} to vote...</p>
         <% end %>
       <% end %>
     </div>
@@ -130,7 +167,7 @@ defmodule ElvenCouncilWeb.JoinLive do
 
     ~H"""
     <div>
-      <h3 class="font-bold mb-2">{@current_card}</h3>
+      <.card_hero name={@current_card} image={@card.image} mechanic={@card.mechanic} />
 
       <div class="mb-4">
         <h4 class="font-medium">Votes:</h4>
@@ -155,6 +192,26 @@ defmodule ElvenCouncilWeb.JoinLive do
 
   # -- Components --
 
+  defp card_hero(assigns) do
+    ~H"""
+    <div class="mb-4">
+      <div class="rounded-lg overflow-hidden shadow-md">
+        <img src={@image} alt={@name} class="w-full aspect-[5/2] object-cover" />
+      </div>
+      <div class="flex items-center justify-between mt-2">
+        <h3 class="font-bold text-lg">{@name}</h3>
+        <span class={["badge badge-sm", mechanic_badge_class(@mechanic)]}>
+          {Cards.mechanic_label(@mechanic)}
+        </span>
+      </div>
+    </div>
+    """
+  end
+
+  defp mechanic_badge_class(:will_of_the_council), do: "badge-primary"
+  defp mechanic_badge_class(:councils_dilemma), do: "badge-secondary"
+  defp mechanic_badge_class(:secret_council), do: "badge-accent"
+
   defp card_rules(assigns) do
     ~H"""
     <div class="bg-base-200 rounded-lg p-3 mb-4 text-sm">
@@ -172,6 +229,10 @@ defmodule ElvenCouncilWeb.JoinLive do
   end
 
   # -- Events --
+
+  def handle_event("pick_name", %{"name" => name}, socket) do
+    {:noreply, assign(socket, player_name: name)}
+  end
 
   def handle_event("vote", %{"choice" => choice}, socket) do
     GameServer.cast_vote(socket.assigns.room_id, socket.assigns.player_name, choice)

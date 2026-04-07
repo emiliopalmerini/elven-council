@@ -12,7 +12,7 @@ config :elven_council,
 
 # Configure the endpoint
 config :elven_council, ElvenCouncilWeb.Endpoint,
-  url: [host: "localhost"],
+  url: [host: "100.127.211.128"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
     formats: [html: ElvenCouncilWeb.ErrorHTML, json: ElvenCouncilWeb.ErrorJSON],
