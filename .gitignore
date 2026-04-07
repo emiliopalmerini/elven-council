@@ -35,3 +35,9 @@ elven_council-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Nix dev shell
+/.nix-mix/
+/.nix-hex/
+/.direnv/
+/result
+
