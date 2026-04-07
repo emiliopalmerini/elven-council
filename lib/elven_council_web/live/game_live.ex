@@ -6,6 +6,7 @@ defmodule ElvenCouncilWeb.GameLive do
 
   def mount(%{"room_id" => room_id}, _session, socket) do
     if GameServer.exists?(room_id) do
+      if connected?(socket), do: GameServer.subscribe(room_id)
       state = GameServer.get_state(room_id)
 
       socket =
@@ -13,15 +14,15 @@ defmodule ElvenCouncilWeb.GameLive do
         |> assign(
           room_id: room_id,
           players: state.players,
-          phase: :card_select,
-          cards: Cards.all(),
+          phase: state.phase,
           card_names: Cards.voteable_names() |> Enum.sort(),
-          current_card: nil,
-          votes: [],
-          current_voter_index: 0,
-          voted: false,
+          current_card: state.current_card,
+          votes: state.votes,
+          current_voter_index: state.current_voter_index,
           error: nil,
-          illusion_of_choice: false
+          illusion_of_choice: state.illusion_of_choice,
+          # Single-device pass screen (not used in multi-device)
+          pass_screen: false
         )
 
       {:ok, socket}
@@ -38,14 +39,14 @@ defmodule ElvenCouncilWeb.GameLive do
         <span class="text-sm opacity-60">room: {@room_id}</span>
       </div>
 
-      <%= case @phase do %>
-        <% :card_select -> %>
+      <%= cond do %>
+        <% @pass_screen -> %>
+          <.pass_phase />
+        <% @phase == :card_select -> %>
           <.card_select_phase {assigns} />
-        <% :voting -> %>
+        <% @phase == :voting -> %>
           <.voting_phase {assigns} />
-        <% :pass -> %>
-          <.pass_phase {assigns} />
-        <% :results -> %>
+        <% @phase == :results -> %>
           <.results_phase {assigns} />
       <% end %>
     </div>
@@ -230,8 +231,7 @@ defmodule ElvenCouncilWeb.GameLive do
   end
 
   defp model_of_unity_summary(assigns) do
-    caster = List.first(assigns.players)
-    matched = Enum.filter(assigns.votes, fn {p, v} -> v == assigns.caster_vote end) |> Enum.map(&elem(&1, 0))
+    matched = Enum.filter(assigns.votes, fn {_p, v} -> v == assigns.caster_vote end) |> Enum.map(&elem(&1, 0))
 
     assigns = Map.put(assigns, :matched, matched)
 
@@ -246,101 +246,82 @@ defmodule ElvenCouncilWeb.GameLive do
   # -- Events --
 
   def handle_event("select_card", %{"card" => card_name}, socket) do
-    if socket.assigns.phase != :card_select do
-      {:noreply, assign(socket, error: "A vote already in progress")}
-    else
-      card = Cards.get(card_name)
+    case GameServer.select_card(socket.assigns.room_id, card_name, socket.assigns.illusion_of_choice) do
+      :ok ->
+        state = GameServer.get_state(socket.assigns.room_id)
+        {:noreply, sync_state(socket, state)}
 
-      if socket.assigns.illusion_of_choice do
-        socket =
-          assign(socket,
-            current_card: card_name,
-            phase: :voting,
-            votes: [],
-            current_voter_index: 0,
-            voted: false,
-            error: nil
-          )
-
-        {:noreply, socket}
-      else
-        socket =
-          assign(socket,
-            current_card: card_name,
-            phase: :voting,
-            votes: [],
-            current_voter_index: 0,
-            voted: false,
-            error: nil
-          )
-
-        {:noreply, socket}
-      end
+      {:error, msg} ->
+        {:noreply, assign(socket, error: msg)}
     end
   end
 
   def handle_event("vote", %{"choice" => choice}, socket) do
     voter = Enum.at(socket.assigns.players, socket.assigns.current_voter_index)
-    card = Cards.get(socket.assigns.current_card)
+    GameServer.cast_vote(socket.assigns.room_id, voter, choice)
 
-    if socket.assigns.illusion_of_choice do
-      # Caster sets all votes to this choice
-      votes = Enum.map(socket.assigns.players, fn p -> {p, choice} end)
-      {:noreply, assign(socket, votes: votes, phase: :results)}
+    state = GameServer.get_state(socket.assigns.room_id)
+
+    if state.phase == :results do
+      {:noreply, sync_state(socket, state)}
     else
-      votes = socket.assigns.votes ++ [{voter, choice}]
-      next_index = socket.assigns.current_voter_index + 1
-
-      if next_index >= length(socket.assigns.players) do
-        # All votes in; for secret council, reveal now
-        {:noreply, assign(socket, votes: votes, phase: :results)}
-      else
-        if card.mechanic == :secret_council do
-          {:noreply, assign(socket, votes: votes, phase: :pass)}
-        else
-          {:noreply, assign(socket, votes: votes, phase: :pass)}
-        end
-      end
+      {:noreply, socket |> sync_state(state) |> assign(pass_screen: true)}
     end
   end
 
   def handle_event("vote_free_text", %{"creature" => creature}, socket) do
     creature = String.trim(creature)
     voter = Enum.at(socket.assigns.players, socket.assigns.current_voter_index)
-    votes = socket.assigns.votes ++ [{voter, creature}]
-    next_index = socket.assigns.current_voter_index + 1
+    GameServer.cast_vote(socket.assigns.room_id, voter, creature)
 
-    if next_index >= length(socket.assigns.players) do
-      {:noreply, assign(socket, votes: votes, phase: :results)}
+    state = GameServer.get_state(socket.assigns.room_id)
+
+    if state.phase == :results do
+      {:noreply, sync_state(socket, state)}
     else
-      {:noreply, assign(socket, votes: votes, phase: :pass)}
+      {:noreply, socket |> sync_state(state) |> assign(pass_screen: true)}
     end
   end
 
   def handle_event("ready", _params, socket) do
-    next_index = socket.assigns.current_voter_index + 1
-
-    {:noreply, assign(socket, phase: :voting, current_voter_index: next_index)}
+    state = GameServer.get_state(socket.assigns.room_id)
+    {:noreply, socket |> sync_state(state) |> assign(pass_screen: false)}
   end
 
   def handle_event("new_vote", _params, socket) do
-    {:noreply,
-     assign(socket,
-       phase: :card_select,
-       current_card: nil,
-       votes: [],
-       current_voter_index: 0,
-       voted: false,
-       error: nil,
-       illusion_of_choice: false
-     )}
+    GameServer.new_vote(socket.assigns.room_id)
+    state = GameServer.get_state(socket.assigns.room_id)
+    {:noreply, sync_state(socket, state)}
   end
 
   def handle_event("toggle_illusion", _params, socket) do
     {:noreply, assign(socket, illusion_of_choice: true)}
   end
 
+  # -- PubSub --
+
+  def handle_info({:game_state, state}, socket) do
+    pass_screen =
+      if socket.assigns.pass_screen && state.phase == :voting do
+        true
+      else
+        false
+      end
+
+    {:noreply, socket |> sync_state(state) |> assign(pass_screen: pass_screen)}
+  end
+
   # -- Helpers --
+
+  defp sync_state(socket, state) do
+    assign(socket,
+      phase: state.phase,
+      current_card: state.current_card,
+      votes: state.votes,
+      current_voter_index: state.current_voter_index,
+      illusion_of_choice: state.illusion_of_choice
+    )
+  end
 
   defp resolve_options(card, players) do
     case card.options do

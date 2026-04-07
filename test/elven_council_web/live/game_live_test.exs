@@ -522,13 +522,124 @@ defmodule ElvenCouncilWeb.GameLiveTest do
 
       # Player joins
       {:ok, join_view, html} = live(conn, ~p"/join/#{room_code}")
-      assert html =~ "Join game"
+      assert html =~ "Waiting for host"
     end
 
     test "joining a nonexistent room shows an error", %{conn: conn} do
       {:ok, view, html} = live(conn, ~p"/join/nonexistent")
 
       assert html =~ "Room not found"
+    end
+  end
+
+  # -- Multi-device Voting --
+
+  describe "multi-device voting" do
+    setup %{conn: conn} do
+      # Host creates game
+      {:ok, host_view, _html} = live(conn, ~p"/")
+
+      host_view
+      |> form("form", %{"players" => ["Emilio", "Marco", "Luca"]})
+      |> render_submit()
+
+      {game_path, _flash} = assert_redirect(host_view)
+      "/game/" <> room_code = game_path
+
+      # Host opens the game view
+      {:ok, host, _html} = live(conn, game_path)
+
+      # Players join on their own "devices" (separate LiveView connections)
+      {:ok, marco, _html} = live(conn, ~p"/join/#{room_code}?name=Marco")
+      {:ok, luca, _html} = live(conn, ~p"/join/#{room_code}?name=Luca")
+
+      %{host: host, marco: marco, luca: luca, room_code: room_code}
+    end
+
+    test "host selects a card and players see it on their devices", %{host: host, marco: marco, luca: luca} do
+      host
+      |> element("button", "Plea for Power")
+      |> render_click()
+
+      # Players should see the vote prompt
+      marco_html = render(marco)
+      luca_html = render(luca)
+
+      assert marco_html =~ "Plea for Power"
+      assert luca_html =~ "Plea for Power"
+    end
+
+    test "public vote: players vote in turn order from their own devices", %{host: host, marco: marco, luca: luca} do
+      host
+      |> element("button", "Expropriate")
+      |> render_click()
+
+      # Host (Emilio) is first voter; votes from host view
+      host |> element("button", "Time") |> render_click()
+
+      # Marco's turn; he votes from his device
+      marco_html = render(marco)
+      assert marco_html =~ "Marco"
+      marco |> element("button", "Money") |> render_click()
+
+      # Luca's turn; he votes from his device
+      luca_html = render(luca)
+      assert luca_html =~ "Luca"
+      luca |> element("button", "Time") |> render_click()
+
+      # All devices should show results
+      host_html = render(host)
+      marco_html = render(marco)
+      luca_html = render(luca)
+
+      assert host_html =~ "Time"
+      assert host_html =~ "2"
+      assert marco_html =~ "Time"
+      assert luca_html =~ "Money"
+    end
+
+    test "secret vote: all players vote simultaneously from their devices", %{host: host, marco: marco, luca: luca} do
+      host
+      |> element("button", "Elrond of the White Council")
+      |> render_click()
+
+      # All players vote at the same time (no turn order for secret)
+      host |> element("button", "Fellowship") |> render_click()
+      marco |> element("button", "Aid") |> render_click()
+
+      # Results not yet visible (Luca hasn't voted)
+      host_html = render(host)
+      refute host_html =~ "voted"
+
+      # Luca votes; results revealed to all
+      luca |> element("button", "Fellowship") |> render_click()
+
+      host_html = render(host)
+      marco_html = render(marco)
+      luca_html = render(luca)
+
+      assert host_html =~ "Emilio voted"
+      assert host_html =~ "Marco voted"
+      assert marco_html =~ "Fellowship"
+      assert luca_html =~ "Aid"
+    end
+
+    test "host starts new vote and all devices return to card select", %{host: host, marco: marco, luca: luca} do
+      # Complete a quick vote
+      host |> element("button", "Plea for Power") |> render_click()
+      host |> element("button", "Time") |> render_click()
+      marco |> element("button", "Knowledge") |> render_click()
+      luca |> element("button", "Time") |> render_click()
+
+      # Host starts new vote
+      host |> element("button", "New Vote") |> render_click()
+
+      marco_html = render(marco)
+      luca_html = render(luca)
+
+      # Players should see waiting/card select state
+      assert marco_html =~ "Waiting"
+      assert luca_html =~ "Waiting"
     end
   end
 
