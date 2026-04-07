@@ -273,24 +273,25 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       view |> element("button", "Fellowship") |> render_click()
       html = view |> element("button", "Ready") |> render_click()
 
-      # After passing, previous vote should not be visible
-      refute html =~ "Fellowship"
+      # After passing, previous voter's choice should not be revealed
+      refute html =~ "Emilio voted"
       assert html =~ "Marco"
 
       # Marco votes Aid
       view |> element("button", "Aid") |> render_click()
       html = view |> element("button", "Ready") |> render_click()
 
-      refute html =~ "Aid"
+      refute html =~ "Marco voted"
       assert html =~ "Luca"
 
       # Luca votes Fellowship - all votes revealed
       html = view |> element("button", "Fellowship") |> render_click()
 
+      assert html =~ "Emilio voted"
+      assert html =~ "Marco voted"
+      assert html =~ "Luca voted"
       assert html =~ "Fellowship"
       assert html =~ "Aid"
-      assert html =~ "2"
-      assert html =~ "1"
     end
 
     test "Cirdan: players vote for a player from the list", %{game_view: view} do
@@ -457,9 +458,9 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       |> element("button", "Expropriate")
       |> render_click()
 
-      # Caster chooses all votes at once
+      # Caster chooses for all players
       html = render(view)
-      assert html =~ "choose"
+      assert html =~ "choose for all"
 
       # All players' votes are set by the caster
       html =
@@ -521,13 +522,13 @@ defmodule ElvenCouncilWeb.GameLiveTest do
 
       # Player joins
       {:ok, join_view, html} = live(conn, ~p"/join/#{room_code}")
-      assert html =~ "join"
+      assert html =~ "Join game"
     end
 
     test "joining a nonexistent room shows an error", %{conn: conn} do
       {:ok, view, html} = live(conn, ~p"/join/nonexistent")
 
-      assert html =~ "not found"
+      assert html =~ "Room not found"
     end
   end
 
@@ -547,7 +548,7 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       %{game_view: game_view}
     end
 
-    test "each Will of the Council card shows correct options", %{game_view: view} do
+    test "each Will of the Council card shows correct options", %{game_view: _view} do
       cards_and_options = [
         {"Coercive Portal", ["Carnage", "Homage"]},
         {"Galadriel, Elven-Queen", ["Dominion", "Guidance"]},
@@ -557,10 +558,6 @@ defmodule ElvenCouncilWeb.GameLiveTest do
       ]
 
       for {card, [opt_a, opt_b]} <- cards_and_options do
-        {:ok, fresh_view, _html} = live(view.module, view)
-
-        # We verify the card data module directly instead of clicking through UI
-        # (clicking would start a vote and block the next card)
         card_data = ElvenCouncil.Cards.get(card)
         assert card_data.mechanic == :will_of_the_council
         assert card_data.options == [opt_a, opt_b]

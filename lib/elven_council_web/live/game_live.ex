@@ -96,7 +96,11 @@ defmodule ElvenCouncilWeb.GameLive do
     ~H"""
     <div>
       <h3 class="font-bold mb-2">{@current_card}</h3>
-      <p class="mb-4">{@voter}'s turn to vote</p>
+      <%= if @illusion_of_choice do %>
+        <p class="mb-4">You choose for all players</p>
+      <% else %>
+        <p class="mb-4">{@voter}'s turn to vote</p>
+      <% end %>
 
       <%= if @card.mechanic == :secret_council && @card[:vote_type] == :free_text do %>
         <form phx-submit="vote_free_text">
