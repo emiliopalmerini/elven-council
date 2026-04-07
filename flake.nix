@@ -24,6 +24,9 @@
             export HEX_HOME="$PWD/.nix-hex"
             export PATH="$MIX_HOME/bin:$MIX_HOME/escripts:$HEX_HOME/bin:$PATH"
             export ERL_AFLAGS="-kernel shell_history enabled"
+
+            mix local.hex --if-missing --force > /dev/null 2>&1
+            mix local.rebar --if-missing --force > /dev/null 2>&1
           '';
         };
       });
