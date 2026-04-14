@@ -16,7 +16,7 @@
           pname = "elven-council-deps";
           version = "0.1.0";
           src = ./.;
-          hash = "sha256-sv5e+gE5O4lEEVPEhFI1ybQBA4/ViWJNVeNdPLN170A=";
+          hash = "sha256-DWgdFB2rrN6nFEfG1l7M3EKSZlcnjPEsgeE6oQjKm7I=";
         };
       in
       {
